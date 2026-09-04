@@ -1,0 +1,18 @@
+# PR check: install from lockfile, vendor DuckDB, run engine tests.
+name: ci
+on:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run vendor
+      - run: node --check app.js && node --check duckdb.js && node --check engine.js

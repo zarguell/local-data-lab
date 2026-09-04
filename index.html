@@ -6,6 +6,13 @@
 <title>Local Data Lab · Parse, Join, SQL, Visualize — 100% client-side</title>
 <meta name="description" content="Offline web data platform: upload CSV TSV JSON XML XLSX ZIP, normalize, join, run SQL, visualize, export. No server, no CDN." />
 <link rel="stylesheet" href="./styles.css" />
+<script type="importmap">
+{"imports":{
+"apache-arrow":"./vendor/duckdb/arrow/Arrow.mjs",
+"flatbuffers":"./vendor/duckdb/flatbuffers/flatbuffers.js",
+"tslib":"./vendor/duckdb/tslib.mjs"
+}}
+</script>
 </head>
 <body>
 <header class="topbar">
@@ -169,7 +176,16 @@
   </section>
 
   <section class="card" id="sqlCard">
-    <div class="card-head"><h2>4 · SQL</h2><span class="pill">mini engine · SELECT · JOIN · WHERE · GROUP BY · ORDER BY · LIMIT</span></div>
+    <div class="card-head"><h2>4 · SQL</h2><span class="pill">built-in mini engine or full DuckDB — your call</span></div>
+    <div class="row gap wrap-row" style="margin-top:0">
+      <div class="field" style="max-width:340px;flex:0 1 340px"><label class="lbl" for="sqlEngine">Engine</label>
+        <select id="sqlEngine">
+          <option value="builtin" selected>Built-in mini-SQL — instant, offline, subset</option>
+          <option value="duckdb">DuckDB 1.32 (vendored WASM) — full SQL, ~38MB first load</option>
+        </select>
+      </div>
+      <div class="field" style="align-self:end;padding-bottom:8px"><span class="hint" id="duckStatus">DuckDB: not loaded (only fetched if you pick it).</span></div>
+    </div>
     <div class="sql-layout">
       <div class="sql-side">
         <div class="lbl">Schema</div>
@@ -180,6 +196,8 @@
           <button class="btn ghost sm" data-q="agg" type="button">GROUP BY + AGG</button>
           <button class="btn ghost sm" data-q="join" type="button">JOIN</button>
           <button class="btn ghost sm" data-q="like" type="button">LIKE + ORDER + LIMIT</button>
+          <button class="btn ghost sm" data-q="window" data-duckdb="1" type="button">Window fn (DuckDB)</button>
+          <button class="btn ghost sm" data-q="subq" data-duckdb="1" type="button">Subquery (DuckDB)</button>
         </div>
       </div>
       <div class="sql-main">
@@ -244,6 +262,7 @@
 </main>
 
 <script src="./engine.js"></script>
+<script src="./duckdb.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>

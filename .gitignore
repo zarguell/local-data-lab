@@ -1,2 +1,5 @@
 .DS_Store
 node_modules/
+# DuckDB-WASM build output (rebuilt from package-lock.json by `npm run vendor`;
+# GitHub Pages workflow rebuilds it at deploy time, so the 38MB wasm stays out of git).
+vendor/

@@ -1,0 +1,16 @@
+{
+  "name": "local-data-lab",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Offline web data platform. DuckDB-WASM + Apache Arrow are npm-managed and vendored into vendor/ at build time so the site stays CDN-free.",
+  "scripts": {
+    "vendor": "node scripts/vendor-duckdb.mjs",
+    "test": "node tests/engine.test.js"
+  },
+  "dependencies": {
+    "@duckdb/duckdb-wasm": "1.32.0",
+    "apache-arrow": "17.0.0",
+    "flatbuffers": "24.12.23",
+    "tslib": "2.8.1"
+  }
+}

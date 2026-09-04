@@ -23,9 +23,10 @@ Per-table schema with inferred types (`integer · number · boolean · date · s
 
 Inner / left / right / full-outer hash joins on any two tables + key columns, with automatic `*_right` disambiguation → new table.
 
-## SQL
+## SQL — two engines
 
-Hand-rolled in-browser engine (no WASM, no deps):
+- **Built-in mini-SQL** (default): instant, zero-load, works even from `file://`. `SELECT [DISTINCT]`, `*`, `t.*`, aliases, `WHERE` (`AND/OR/NOT`, comparisons, `LIKE`, `IN`, `IS [NOT] NULL`), all four joins + cross, `GROUP BY` + `COUNT/SUM/AVG/MIN/MAX`, `ORDER BY`, `LIMIT/OFFSET`.
+- **DuckDB 1.32 (vendored WASM)**: full SQL — subqueries, window functions, `UNION`, `PIVOT`, rich types/functions. Pick it in the §4 engine dropdown; the ~38MB WASM loads once from the *same origin* (no CDN) and is cached afterwards. Needs `http(s)` — from `file://` you'll get a clear fallback message instead.
 
 ```sql
 SELECT dept, COUNT(*) AS n, AVG(salary) AS avg_salary
@@ -46,10 +47,20 @@ Hand-rolled SVG (no chart lib): **bar** (group + sum/count/avg/min/max), **line*
 
 Per table: CSV · TSV · JSON · XLSX (frozen header + auto-filter + widths). Query results: CSV/XLSX. Everything: one `.zip` of CSVs.
 
-## Run / deploy
+## Dependencies & Renovate
+
+The only runtime deps are `@duckdb/duckdb-wasm` + `apache-arrow`, managed as **exact pins in `package.json` + `package-lock.json`** — Mend Renovate's npm manager discovers them with zero extra config, and its PRs update the lockfile. Nothing else to do:
+
+- `npm run vendor` copies the browser MVP build + Arrow ESM tree from `node_modules` into `vendor/duckdb/` (+ `manifest.json`).
+- `.github/workflows/pages.yml` re-runs that from the lockfile on every deploy, so the 38MB `.wasm` never lives in git and Renovate PRs flow straight to production after merge.
+- Only the MVP (single-threaded) build is vendored: unlike the `coi`/`eh` builds it needs no COOP/COEP headers, so it runs on GitHub Pages.
 
 ```bash
-python3 -m http.server 8000  # → http://localhost:8000
+npm ci && npm run vendor   # local dev: enables the DuckDB engine
+# vendor/duckdb/manifest.json records the vendored versions
+python3 -m http.server 8000  # → http://localhost:8000 (http needed for DuckDB; built-in engine also works from file://)
 ```
 
-Push to `main` — GitHub Pages serves it.
+## Run / deploy
+
+Push to `main` — the Pages workflow (`pages.yml`: install → test → vendor → deploy) publishes it.

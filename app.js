@@ -461,17 +461,44 @@ document.addEventListener('DOMContentLoaded', function () {
     } catch (e) { $('joinInfo').textContent = 'Join failed: ' + e.message; }
   });
   // sql
+  function duckNote() {
+    var s = window.DuckDBRunner ? window.DuckDBRunner.status() : { status: 'idle' };
+    $('duckStatus').textContent =
+      s.status === 'ready' ? 'DuckDB: ready (vendored WASM, same-origin).' :
+      s.status === 'loading' ? 'DuckDB: loading WASM…' :
+      s.status === 'error' ? 'DuckDB: ' + s.error :
+      'DuckDB: not loaded (only fetched if you pick it).';
+  }
+  function duckCsvMap() {
+    var m = {};
+    tables.forEach(function (t) {
+      m[t.name] = { columns: t.columns, csv: E.buildDelimited(t.columns, t.rows, ',').replace(/^\uFEFF/, '') };
+    });
+    return m;
+  }
+  $('sqlEngine').addEventListener('change', function () {
+    duckNote();
+    if ($('sqlEngine').value === 'duckdb' && window.DuckDBRunner) {
+      window.DuckDBRunner.ensure().then(duckNote).catch(duckNote);
+    }
+  });
   function firstName(fb) {
     return tables.length ? tables[0].name : fb;
   }
   document.querySelectorAll('#sqlSamples button').forEach(function (b) {
     b.addEventListener('click', function () {
+      if (b.dataset.duckdb && $('sqlEngine').value !== 'duckdb') {
+        $('sqlEngine').value = 'duckdb';
+        $('sqlEngine').dispatchEvent(new Event('change'));
+      }
       var a = firstName('employees');
       var q = {
         select: 'SELECT * FROM ' + a + ' LIMIT 20',
         agg: 'SELECT dept, COUNT(*) AS n, AVG(salary) AS avg_salary FROM ' + a + ' GROUP BY dept ORDER BY n DESC',
         join: tables.length > 1 ? 'SELECT a.name, a.dept, b.budget FROM ' + tables[0].name + ' a JOIN ' + tables[1].name + ' b ON a.dept = b.dept LIMIT 20' : 'SELECT a.name, b.orderId FROM ' + a + ' a JOIN orders b ON 1=1 LIMIT 5  -- pick two real tables first',
-        like: "SELECT name, salary FROM " + a + " WHERE name LIKE '%a%' ORDER BY salary DESC LIMIT 10"
+        like: "SELECT name, salary FROM " + a + " WHERE name LIKE '%a%' ORDER BY salary DESC LIMIT 10",
+        window: 'SELECT name, dept, salary, RANK() OVER (PARTITION BY dept ORDER BY salary DESC) AS dept_rank FROM ' + a + ' ORDER BY dept, dept_rank',
+        subq: 'SELECT dept, n FROM (SELECT dept, COUNT(*) AS n FROM ' + a + ' GROUP BY dept) WHERE n >= 2 ORDER BY n DESC'
       }[b.dataset.q];
       $('sqlInput').value = q;
     });
@@ -479,6 +506,21 @@ document.addEventListener('DOMContentLoaded', function () {
   $('sqlRunBtn').addEventListener('click', function () {
     var q = $('sqlInput').value;
     if (!q.trim()) return;
+    if ($('sqlEngine').value === 'duckdb') {
+      if (!tables.length) { $('sqlMsg').textContent = 'No tables to query.'; return; }
+      $('sqlMsg').textContent = 'DuckDB: running…';
+      duckNote();
+      window.DuckDBRunner.runQuery(q, duckCsvMap()).then(function (res) {
+        queryResult = { columns: res.columns, rows: res.rows };
+        renderSQLResult(queryResult);
+        renderChartSources();
+        duckNote();
+      }).catch(function (e) {
+        $('sqlMsg').textContent = 'DuckDB error: ' + e.message;
+        duckNote();
+      });
+      return;
+    }
     try {
       var r = E.runSQL(q, tablesMap());
       queryResult = { columns: r.result.columns, rows: r.result.rows };
@@ -560,5 +602,6 @@ document.addEventListener('DOMContentLoaded', function () {
     $('sqlInput').value = 'SELECT dept, COUNT(*) AS n, AVG(salary) AS avg_salary FROM employees GROUP BY dept ORDER BY n DESC';
   } catch (e) { log('seed: ' + e.message, 'err'); }
   renderAll();
+  duckNote();
 });
 })();

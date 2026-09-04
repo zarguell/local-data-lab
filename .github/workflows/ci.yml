@@ -13,6 +13,6 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: npm test
       - run: npm run vendor
+      - run: npm test
       - run: node --check app.js && node --check duckdb.js && node --check engine.js

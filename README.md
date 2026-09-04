@@ -11,8 +11,9 @@ Offline web data platform. Static site, fully self-contained, no CDN, no server.
 - **CSV / TSV / TXT** — auto delimiter detection (`,` `⇥` `;` `|`), quoted fields, embedded newlines, header toggle
 - **JSON / NDJSON** — objects, arrays, primitives, JSON Lines; root-path picker; nested flattening + array explode
 - **XML** — auto-detects the repeating record tag (or set it manually), attributes + nested elements flattened
-- **XLSX / XLSM** — real import (stored + deflated zip entries, shared strings, inline strings, multi-sheet, Excel date cells → `YYYY-MM-DD`)
+- **XLS/XLSX** — primary importer is vendored SheetJS (`xlsx`), so real-world files work: shared strings, styles/dates, multi-sheet, **legacy `.xls` (BIFF) and `.xlsb`** — formats the old hand parser never could. Loaded on demand only. If `vendor/` is absent (fresh clone over `file://`), xlsx-family gracefully falls back to the built-in dependency-free parser.
 - **ZIP** — unpacks bundles of the above, one table per inner file
+- **Encodings** — text files decode as UTF-8 strict → UTF-16 via BOM → windows-1252 fallback, so Excel-exported latin1 CSVs stop mojibaking.
 - Paste box (auto-detect) + one-click samples, incl. a generated-XLSX round-trip proof
 
 ## Normalize
@@ -49,9 +50,9 @@ Per table: CSV · TSV · JSON · XLSX (frozen header + auto-filter + widths). Qu
 
 ## Dependencies & Renovate
 
-The only runtime deps are `@duckdb/duckdb-wasm` + `apache-arrow`, managed as **exact pins in `package.json` + `package-lock.json`** — Mend Renovate's npm manager discovers them with zero extra config, and its PRs update the lockfile. Nothing else to do:
+The runtime deps are `@duckdb/duckdb-wasm` + `apache-arrow` (+ its `flatbuffers`/`tslib` transitive imports) and `xlsx` (SheetJS), managed as **exact pins in `package.json` + `package-lock.json`** — Mend Renovate's npm manager discovers them with zero extra config, and its PRs update the lockfile. Nothing else to do:
 
-- `npm run vendor` copies the browser MVP build + Arrow ESM tree from `node_modules` into `vendor/duckdb/` (+ `manifest.json`).
+- `npm run vendor` copies the browser MVP build + Arrow ESM tree + SheetJS classic script from `node_modules` into `vendor/` (+ `manifest.json`), and **fails if any bare import isn't covered by the importmap** — a future Renovate bump that adds a dependency breaks the build, not users' browsers.
 - `.github/workflows/pages.yml` re-runs that from the lockfile on every deploy, so the 38MB `.wasm` never lives in git and Renovate PRs flow straight to production after merge.
 - Only the MVP (single-threaded) build is vendored: unlike the `coi`/`eh` builds it needs no COOP/COEP headers, so it runs on GitHub Pages.
 
@@ -60,6 +61,13 @@ npm ci && npm run vendor   # local dev: enables the DuckDB engine
 # vendor/duckdb/manifest.json records the vendored versions
 python3 -m http.server 8000  # → http://localhost:8000 (http needed for DuckDB; built-in engine also works from file://)
 ```
+
+## Deliberately still hand-rolled
+
+Crossing the npm Rubicon doesn't mean depending on everything. Kept because they're small, tested, and a dependency buys nothing:
+
+- **Built-in mini-SQL** — default engine: instant, zero-load, works from `file://`. DuckDB is the upgrade path, not the replacement.
+- **CSV/TSV parser, XML parser, ZIP reader/writer, XLSX writer, SVG charts** — each is a few hundred lines with committed tests (`npm test`) covering the real paths (incl. deflated zips and generated-XLSX round-trips). Swapping any of them would add supply-chain surface for no user-visible gain.
 
 ## Run / deploy
 

@@ -7,6 +7,15 @@
 
 /* ================= utils ================= */
 function stripBOM(s) { return s && s.charCodeAt(0) === 0xFEFF ? s.slice(1) : s; }
+// Decode raw file bytes: UTF-8 (strict) → UTF-16 via BOM → windows-1252
+// fallback (classic Excel-exported CSVs are often latin1-encoded).
+function decodeBytes(u8) {
+  var b = u8 instanceof Uint8Array ? u8 : new Uint8Array(u8);
+  if (b.length >= 2 && b[0] === 0xFF && b[1] === 0xFE) return new TextDecoder('utf-16le').decode(b.subarray(2));
+  if (b.length >= 2 && b[0] === 0xFE && b[1] === 0xFF) return new TextDecoder('utf-16be').decode(b.subarray(2));
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(b); }
+  catch (e) { return new TextDecoder('windows-1252').decode(b); }
+}
 function sanitizeCol(name, i, used) {
   var base = String(name == null ? '' : name).trim();
   if (!base) base = 'col_' + (i + 1);
@@ -23,9 +32,6 @@ function sanitizeColumns(names) {
 }
 function escXml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
-}
-function escHtml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 function cellText(v) {
   if (v === null || v === undefined) return '';
@@ -285,6 +291,16 @@ function rowsToTable(rawRows, opts) {
 }
 
 /* ================= XML (mini parser, portable) ================= */
+var XML_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: '\'', nbsp: '\u00a0', copy: '\u00a9', reg: '\u00ae', trade: '\u2122', euro: '\u20ac', pound: '\u00a3', yen: '\u00a5', deg: '\u00b0', plusmn: '\u00b1', middot: '\u00b7', bull: '\u2022', hellip: '\u2026', mdash: '\u2014', ndash: '\u2013', laquo: '\u00ab', raquo: '\u00bb', ldquo: '\u201c', rdquo: '\u201d', lsquo: '\u2018', rsquo: '\u2019', frasl: '\u2044' };
+function decodeXmlEntities(s) {
+  return String(s).replace(/&(#\d+|#x[0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]+);/g, function (m, e) {
+    if (e.charAt(0) === '#') {
+      var cp = e.charAt(1) === 'x' || e.charAt(1) === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+      try { return String.fromCodePoint(cp); } catch (err) { return m; }
+    }
+    return XML_ENTITIES[e] !== undefined ? XML_ENTITIES[e] : m;
+  });
+}
 function parseXmlTree(text) {
   text = stripBOM(String(text || '')).replace(/^\s*<\?xml[\s\S]*?\?>\s*/, '');
   var root = { name: '#root', attrs: {}, children: [] }, stack = [root];
@@ -299,8 +315,9 @@ function parseXmlTree(text) {
     pushText(text.slice(last, m.index));
     last = re.lastIndex;
     if (m[0].indexOf('<!--') === 0) continue;
-    if (m[1] !== undefined) { // CDATA
-      pushText(m[1]);
+    if (m[1] !== undefined) { // CDATA — literal, never entity-decoded
+      var top2 = stack[stack.length - 1];
+      if (m[1].trim()) top2.children.push({ name: '#text', text: m[1], cdata: true });
       continue;
     }
     var closing = !!m[2], name = m[3], attrS = m[4] || '', selfClose = !!m[5];
@@ -312,7 +329,7 @@ function parseXmlTree(text) {
     }
     var attrs = {};
     var am = /([A-Za-z_][\w\-.:]*)\s*=\s*("([^"]*)"|'([^']*)')/g, a2;
-    while ((a2 = am.exec(attrS))) attrs[a2[1]] = a2[3] !== undefined ? a2[3] : a2[4];
+    while ((a2 = am.exec(attrS))) attrs[a2[1]] = decodeXmlEntities(a2[3] !== undefined ? a2[3] : a2[4]);
     var el = { name: name, attrs: attrs, children: [] };
     stack[stack.length - 1].children.push(el);
     if (!selfClose) stack.push(el);
@@ -325,9 +342,9 @@ function parseXmlTree(text) {
 function elementToJS(el) {
   var obj = {};
   Object.keys(el.attrs || {}).forEach(function (k) { obj[k] = el.attrs[k]; });
-  var groups = {}, order = [], texts = [];
+  var groups = {}, order = [];
   (el.children || []).forEach(function (ch) {
-    if (ch.name === '#text') { texts.push(ch.text); return; }
+    if (ch.name === '#text') return;
     if (!groups[ch.name]) { groups[ch.name] = []; order.push(ch.name); }
     groups[ch.name].push(ch);
   });
@@ -340,15 +357,17 @@ function elementToJS(el) {
       return (!e.children || !e.children.length) && !Object.keys(e.attrs || {}).length ? leafText(e) : elementToJS(e);
     });
   });
-  var t = texts.join(' ').trim();
-  if (!order.length && !Object.keys(obj).length) return t;
-  if (t && order.length) obj._text = t;
+  var t = [];
+  (el.children || []).forEach(function (ch) { if (ch.name === '#text') t.push(ch.cdata ? ch.text : decodeXmlEntities(ch.text)); });
+  var tJoined = t.join(' ').trim();
+  if (!order.length && !Object.keys(obj).length) return tJoined;
+  if (tJoined && order.length) obj._text = tJoined;
   return obj;
 }
 function stripNs(tag) { var i = tag.indexOf(':'); return i >= 0 ? tag.slice(i + 1) : tag; }
 function leafText(el) {
   var t = [];
-  (el.children || []).forEach(function (c) { if (c.name === '#text') t.push(c.text); });
+  (el.children || []).forEach(function (c) { if (c.name === '#text') t.push(c.cdata ? c.text : decodeXmlEntities(c.text)); });
   return t.join(' ').trim();
 }
 function xmlCandidates(tree) {
@@ -506,7 +525,7 @@ function joinTables(left, right, opts) {
     if (colMapR[c] === null) return;
     finalCols.push(colMapR[c]);
   });
-  var rows = [], matchedR = {};
+  var rows = [];
   left.rows.forEach(function (lr) {
     var hits = idx[key(lr[lk])] || [];
     if (!hits.length) {
@@ -515,15 +534,13 @@ function joinTables(left, right, opts) {
         right.columns.forEach(function (c) { if (colMapR[c]) o[colMapR[c]] = null; });
         rows.push(o);
       }
-    } else hits.forEach(function (rr, hi) {
-      matchedR[right.rows.indexOf(rr) + ':' + hi] = 1;
+    } else hits.forEach(function (rr) {
       var o2 = Object.assign({}, lr);
       right.columns.forEach(function (c) {
         if (colMapR[c] === null) return;
         o2[colMapR[c]] = rr[c];
       });
       rows.push(o2);
-      void hi;
     });
   });
   // track matched right rows properly
@@ -1036,7 +1053,6 @@ function sqlParse(query) {
       else throw new Error('JOIN needs ON condition (or use CROSS JOIN)');
     }
     joins.push({ type: jt, table: jr.table, alias: jr.alias, on: on });
-    void jt;
   }
   var where = null, groupBy = null, orderBy = null, limit = null, offset = null;
   if (eat('WHERE')) where = parseExpr();
@@ -1226,7 +1242,6 @@ function sqlExecute(ast, tables) {
       var idx = {};
       right.rows.forEach(function (rr) {
         var o = {}; o[j.alias] = rr;
-        Object.keys(envs[0] || {}).forEach(function () {});
         var k = keyOf(sqlEval(j.on.r, Object.assign({}, o)));
         (idx[k] = idx[k] || []).push(rr);
       });
@@ -1539,7 +1554,7 @@ var SAMPLES = {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    stripBOM: stripBOM, sanitizeColumns: sanitizeColumns, cellText: cellText,
+    stripBOM: stripBOM, decodeBytes: decodeBytes, decodeXmlEntities: decodeXmlEntities, sanitizeColumns: sanitizeColumns, cellText: cellText,
     detectDelimiter: detectDelimiter, parseDelimited: parseDelimited, buildDelimited: buildDelimited,
     tryParseJSON: tryParseJSON, findArrayCandidates: findArrayCandidates, coerceToRows: coerceToRows,
     flattenRow: flattenRow, explodeRows: explodeRows, defaultFlattenOpts: defaultFlattenOpts, rowsToTable: rowsToTable,
@@ -1550,12 +1565,12 @@ if (typeof module !== 'undefined' && module.exports) {
     parseZipEntries: parseZipEntries, unzipAll: unzipAll, importXlsx: importXlsx, excelSerialToISO: excelSerialToISO,
     sqlTokenize: sqlTokenize, sqlParse: sqlParse, sqlExecute: sqlExecute, runSQL: runSQL,
     prepareBar: prepareBar, prepareXY: prepareXY, buildChartSVG: buildChartSVG,
-    SAMPLES: SAMPLES, escXml: escXml, escHtml: escHtml
+    SAMPLES: SAMPLES, escXml: escXml
   };
 } else if (typeof window !== 'undefined') window.DataLab = null; // attached below
 if (typeof window !== 'undefined') {
   window.DataLabEngine = {
-    stripBOM: stripBOM, sanitizeColumns: sanitizeColumns, cellText: cellText,
+    stripBOM: stripBOM, decodeBytes: decodeBytes, decodeXmlEntities: decodeXmlEntities, sanitizeColumns: sanitizeColumns, cellText: cellText,
     detectDelimiter: detectDelimiter, parseDelimited: parseDelimited, buildDelimited: buildDelimited,
     tryParseJSON: tryParseJSON, findArrayCandidates: findArrayCandidates, coerceToRows: coerceToRows,
     flattenRow: flattenRow, explodeRows: explodeRows, defaultFlattenOpts: defaultFlattenOpts, rowsToTable: rowsToTable,
@@ -1566,7 +1581,7 @@ if (typeof window !== 'undefined') {
     parseZipEntries: parseZipEntries, unzipAll: unzipAll, importXlsx: importXlsx, excelSerialToISO: excelSerialToISO,
     sqlTokenize: sqlTokenize, sqlParse: sqlParse, sqlExecute: sqlExecute, runSQL: runSQL,
     prepareBar: prepareBar, prepareXY: prepareXY, buildChartSVG: buildChartSVG,
-    SAMPLES: SAMPLES, escXml: escXml, escHtml: escHtml
+    SAMPLES: SAMPLES, escXml: escXml
   };
 }
 })();

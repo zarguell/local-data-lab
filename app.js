@@ -98,6 +98,67 @@ function importXML(name, text) {
   addTable(name, t.columns, t.rows, 'xml · <' + t.recordTag + '>');
   log('✓ ' + name + ' — XML <' + t.recordTag + '> → ' + t.rows.length.toLocaleString() + ' rows × ' + t.columns.length + ' cols.', 'okk');
 }
+function sheetDate(v) {
+  if (v instanceof Date && !isNaN(v)) {
+    var iso = v.toISOString();
+    return /T00:00:00\.000Z$/.test(iso) ? iso.slice(0, 10) : iso.slice(0, 19).replace('T', ' ');
+  }
+  return v;
+}
+function loadVendorScript(path, globalName) {
+  return new Promise(function (resolve, reject) {
+    if (window[globalName]) { resolve(); return; }
+    if (document.querySelector('script[data-vendor="' + path + '"]')) {
+      var iv = setInterval(function () {
+        if (window[globalName]) { clearInterval(iv); resolve(); }
+      }, 50);
+      setTimeout(function () { clearInterval(iv); reject(new Error('timed out loading ' + path)); }, 30000);
+      return;
+    }
+    var s = document.createElement('script');
+    s.src = path; s.async = true; s.setAttribute('data-vendor', path);
+    s.onload = function () { resolve(); };
+    s.onerror = function () { reject(new Error('could not load ' + path + ' — run `npm run vendor` for local dev (deploy builds it automatically)')); };
+    document.head.appendChild(s);
+  });
+}
+function ensureSheetJS() { return loadVendorScript('./vendor/xlsx/xlsx.full.min.js', 'XLSX'); }
+// Primary spreadsheet importer: SheetJS (xlsx/xlsm/xlsb + legacy .xls).
+// Falls back to the built-in parser for xlsx-family when vendor/ is absent
+// (fresh clone, file://) — that path is dependency-free by design.
+function importWorkbook(name, buf, kind) {
+  var legacyOk = kind !== 'xls' && kind !== 'xlsb';
+  function viaSheetJS() {
+    var wb = window.XLSX.read(buf, { type: 'array', cellDates: true });
+    if (!wb.SheetNames.length) throw new Error('no worksheets found');
+    var header = $('firstHeaderCheck').checked;
+    wb.SheetNames.forEach(function (sn) {
+      var grid = window.XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: '', raw: true, blankrows: false });
+      if (!grid.length) return;
+      var cols, start = 0;
+      if (header) { cols = E.sanitizeColumns(grid[0].map(function (h) { return String(h == null ? '' : h); })); start = 1; }
+      else cols = E.sanitizeColumns(grid[0].map(function (_, k) { return 'col_' + (k + 1); }));
+      var rows = [];
+      for (var r = start; r < grid.length; r++) {
+        var o = {}, empty = true;
+        for (var c = 0; c < cols.length; c++) {
+          var v = sheetDate(c < grid[r].length ? grid[r][c] : '');
+          if (v === undefined) v = '';
+          if (v !== '' && v !== null) empty = false;
+          o[cols[c]] = v;
+        }
+        if (!empty) rows.push(o);
+      }
+      addTable(wb.SheetNames.length > 1 ? name + '_' + sn : name, cols, rows, kind + ' · ' + sn);
+    });
+    log('✓ ' + name + ' — ' + kind.toUpperCase() + ' ' + wb.SheetNames.length + ' sheet(s) imported.', 'okk');
+  }
+  return ensureSheetJS().then(viaSheetJS).catch(function (e) {
+    if (!legacyOk) throw e;
+    log(name + ': SheetJS unavailable (' + e.message + ') — using built-in parser.');
+    return importXlsxBuf(name, buf);
+  });
+}
 function importXlsxBuf(name, buf) {
   return E.importXlsx(buf, { header: $('firstHeaderCheck').checked, dateConvert: $('xlsxDatesCheck').checked }).then(function (sheets) {
     sheets.forEach(function (sh, i) {
@@ -116,8 +177,8 @@ function importZipBuf(name, buf) {
       chain = chain.then(function () {
         var low = k.toLowerCase();
         try {
-          if (/\.xlsx?$/.test(low) || /\.xlsm$/.test(low)) return importXlsxBuf(k.split('/').pop(), files[k].buffer.slice(0));
-          var txt = new TextDecoder().decode(files[k]);
+          if (/\.xlsb?$/.test(low) || /\.xlsm$/.test(low)) return importWorkbook(k.split('/').pop(), files[k].buffer.slice(0), /\.xlsb?$/.test(low) ? (/\.xlsb$/.test(low) ? 'xlsb' : 'xls') : 'xlsx');
+          var txt = E.decodeBytes(files[k]);
           if (/\.jsonl?$/.test(low) || /\.ndjson$/.test(low)) importJSON(k.split('/').pop(), txt);
           else if (/\.xml$/.test(low)) importXML(k.split('/').pop(), txt);
           else importDelimited(k.split('/').pop(), txt, 'auto');
@@ -159,9 +220,10 @@ function readFiles(list) {
     chain = chain.then(function () {
       var low = f.name.toLowerCase();
       var base = f.name.replace(/\.[a-z0-9]+$/i, '');
-      if (/\.xlsx?$/.test(low) || /\.xlsm$/.test(low)) return f.arrayBuffer().then(function (b) { return importXlsxBuf(base, b); }).catch(function (e) { log('✕ ' + f.name + ': ' + e.message, 'err'); });
+      if (/\.xlsb?$/.test(low) || /\.xlsm$/.test(low)) return f.arrayBuffer().then(function (b) { return importWorkbook(base, b, /\.xlsb$/.test(low) ? 'xlsb' : (/\.xls$/.test(low) ? 'xls' : 'xlsx')); }).catch(function (e) { log('✕ ' + f.name + ': ' + e.message, 'err'); });
       if (/\.zip$/.test(low)) return f.arrayBuffer().then(function (b) { return importZipBuf(base, b); }).catch(function (e) { log('✕ ' + f.name + ': ' + e.message, 'err'); });
-      return f.text().then(function (t) {
+      return f.arrayBuffer().then(function (b) {
+        var t = E.decodeBytes(b);
         try {
           if (/\.jsonl?$/.test(low) || /\.ndjson$/.test(low)) importJSON(base, t);
           else if (/\.xml$/.test(low)) importXML(base, t);
@@ -387,10 +449,7 @@ document.addEventListener('DOMContentLoaded', function () {
             { region: 'APAC', rep: 'Dee', month: '2026-02', revenue: 8200, units: 88 }
           ];
           var bytes = E.buildXlsx(cols, rows, 'Sales');
-          E.importXlsx(bytes.buffer.slice ? bytes.buffer.slice(0) : bytes, { header: true, dateConvert: true }).then(function (sheets) {
-            sheets.forEach(function (sh) { addTable('sales', sh.columns, sh.rows, 'generated XLSX round-trip'); });
-            log('✓ sales — generated XLSX built + re-imported (round-trip proof).', 'okk');
-          }).catch(function (e) { log('✕ sales xlsx: ' + e.message, 'err'); });
+          importWorkbook('sales', bytes.buffer.slice(0), 'xlsx').catch(function (e) { log('✕ sales xlsx: ' + e.message, 'err'); });
         }
         else if (k === 'employees') importDelimited('employees', E.SAMPLES.employees, ',');
         else if (k === 'events') importDelimited('events', E.SAMPLES.events, '\t');

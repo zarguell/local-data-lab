@@ -10,6 +10,7 @@
 
 var VENDOR = './vendor/duckdb/';
 var state = { status: 'idle', error: '', duckdb: null, arrow: null, db: null, conn: null, loading: null };
+var regCache = {}; // table name -> content hash; skips re-registering unchanged tables
 
 function isFileProto() {
   try { return window.location.protocol === 'file:'; } catch (e) { return true; }
@@ -53,13 +54,24 @@ async function ensure() {
   return state.loading;
 }
 
+function fnv1a(s) {
+  var h = 0x811c9dc5;
+  for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(36);
+}
 async function registerTable(name, csvText) {
+  // Skip re-registration when content is identical (second Run is instant).
+  // Full-content hash: a stale table in a query result would be a silent
+  // wrong answer, so no sampling shortcuts. Huge payloads bypass the cache.
+  var h = csvText.length + ':' + (csvText.length > 16777216 ? 'nocache' : fnv1a(csvText));
+  if (h.indexOf('nocache') < 0 && regCache[name] === h) return;
   var fname = 'ldl__' + name + '.csv';
   await state.db.registerFileText(fname, csvText);
   await state.conn.query(
     'CREATE OR REPLACE TABLE ' + qIdent(name) +
     ' AS SELECT * FROM read_csv(' + "'" + fname + "'" + ', header=true)'
   );
+  regCache[name] = h;
 }
 function toPlain(v) {
   if (typeof v === 'bigint') {

@@ -108,6 +108,14 @@ async function main() {
   console.log(`vendored flatbuffers ESM (${fb.count} files)`);
   await cp(nm('tslib/tslib.es6.mjs'), path.join(outDir, 'tslib.mjs'));
   console.log('vendored tslib.mjs');
+  // SheetJS: single self-contained classic script (no imports), loaded on demand
+  // only when a spreadsheet is imported — keeps first paint light.
+  await mkdir(path.join(root, 'vendor', 'xlsx'), { recursive: true });
+  await cp(nm('xlsx/dist/xlsx.full.min.js'), path.join(root, 'vendor', 'xlsx', 'xlsx.full.min.js'));
+  const xs = await stat(path.join(root, 'vendor', 'xlsx', 'xlsx.full.min.js'));
+  manifest.files['../xlsx/xlsx.full.min.js'] = xs.size;
+  manifest.sheetjs = JSON.parse(await readFile(nm('xlsx/package.json'), 'utf8')).version;
+  console.log(`vendored xlsx.full.min.js (${(xs.size / 1048576).toFixed(1)} MiB)`);
   manifest.importmap = {
     'apache-arrow': './vendor/duckdb/arrow/Arrow.mjs',
     flatbuffers: './vendor/duckdb/flatbuffers/flatbuffers.js',
@@ -115,7 +123,7 @@ async function main() {
   };
   // every bare specifier in the vendored tree must be served by the importmap;
   // anything else is a future Renovate surprise — fail loudly instead.
-  await checkBareImports(outDir, new Set(Object.keys(manifest.importmap)));
+  await checkBareImports(path.join(root, 'vendor'), new Set(Object.keys(manifest.importmap)));
   // sanity: browser bundle must reference the bare specifier our importmap provides
   const mjs = await readFile(path.join(outDir, 'duckdb-browser.mjs'), 'utf8');
   if (!mjs.includes('apache-arrow')) throw new Error('duckdb-browser.mjs no longer imports apache-arrow — update importmap wiring');

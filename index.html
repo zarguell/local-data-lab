@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Local Data Lab · Parse, Join, SQL, Visualize — 100% client-side</title>
+<meta name="description" content="Offline web data platform: upload CSV TSV JSON XML XLSX ZIP, normalize, join, run SQL, visualize, export. No server, no CDN." />
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">◈</div>
+      <div>
+        <h1>Local Data Lab</h1>
+        <p>Upload → Normalize → Join → SQL → Visualize → Export. Fully offline.</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button id="themeBtn" class="btn ghost" type="button">◐ Theme</button>
+      <button id="resetAllBtn" class="btn ghost" type="button">Reset all</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="card" id="srcCard">
+    <div class="card-head">
+      <h2>1 · Sources — CSV · TSV · JSON · XML · XLSX · ZIP</h2>
+      <span class="pill" id="srcPill">0 tables</span>
+    </div>
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-stab="upload" type="button">Upload files</button>
+      <button class="tab" data-stab="paste" type="button">Paste text</button>
+      <button class="tab" data-stab="samples" type="button">Samples</button>
+    </div>
+
+    <div class="tabpane active" id="spane-upload">
+      <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Drop files or click to browse">
+        <div class="dz-title">Drop files here, or <span class="link">browse</span></div>
+        <div class="dz-sub">.csv .tsv .txt .json .ndjson .xml .xlsx .xlsm .zip — read locally, nothing uploaded. Multi-file OK.</div>
+        <input type="file" id="fileInput" multiple accept=".csv,.tsv,.tab,.txt,.dat,.json,.ndjson,.jsonl,.xml,.xlsx,.xlsm,.zip" hidden />
+      </div>
+      <div class="row gap"><span class="hint" id="fileInfo">No files loaded yet.</span></div>
+    </div>
+
+    <div class="tabpane" id="spane-paste">
+      <div class="row gap wrap-row">
+        <div class="field"><label class="lbl" for="pasteFormat">Format</label>
+          <select id="pasteFormat">
+            <option value="auto" selected>Auto-detect</option>
+            <option value="csv">CSV</option>
+            <option value="tsv">TSV</option>
+            <option value="json">JSON / JSON Lines</option>
+            <option value="xml">XML</option>
+          </select>
+        </div>
+        <div class="field"><label class="lbl" for="pasteDelim">Delimiter (csv)</label>
+          <select id="pasteDelim">
+            <option value="auto" selected>Auto</option>
+            <option value=",">Comma ,</option>
+            <option value="	">Tab</option>
+            <option value=";">Semicolon ;</option>
+            <option value="|">Pipe |</option>
+          </select>
+        </div>
+        <div class="field"><label class="lbl" for="pasteName">Table name</label><input id="pasteName" placeholder="pasted_data" /></div>
+        <div class="field check-field"><label class="check inline"><input type="checkbox" id="pasteHeader" checked /> First row is header</label></div>
+      </div>
+      <textarea id="pasteText" spellcheck="false" placeholder="Paste CSV, JSON, or XML here…"></textarea>
+      <div class="row gap"><button id="addPasteBtn" class="btn primary" type="button">Add as table</button></div>
+    </div>
+
+    <div class="tabpane" id="spane-samples">
+      <p class="hint">One click loads a tricky-but-realistic dataset.</p>
+      <div class="sample-grid">
+        <button class="btn ghost sample" data-sample="employees" type="button">Employees (CSV)</button>
+        <button class="btn ghost sample" data-sample="events" type="button">Events (TSV)</button>
+        <button class="btn ghost sample" data-sample="orders" type="button">Orders (nested JSON)</button>
+        <button class="btn ghost sample" data-sample="catalog" type="button">Catalog (XML)</button>
+        <button class="btn ghost sample" data-sample="sales" type="button">Sales (generated XLSX)</button>
+      </div>
+    </div>
+
+    <details class="adv"><summary>Import options (flattening, headers, dates)</summary>
+      <div class="row gap wrap-row">
+        <div class="field"><label class="lbl" for="rootInput">JSON rows at path <span class="hint-inline">(blank = auto)</span></label><input id="rootInput" placeholder="e.g. orders  — blank = auto" /></div>
+        <div class="field"><label class="lbl" for="xmlInput">XML record tag <span class="hint-inline">(blank = auto)</span></label><input id="xmlInput" placeholder="e.g. item — blank = auto" /></div>
+        <div class="field"><label class="lbl" for="sepInput">Key separator</label><input id="sepInput" value="." maxlength="4" /></div>
+        <div class="field"><label class="lbl" for="arrayMode">Nested arrays</label>
+          <select id="arrayMode">
+            <option value="join" selected>Join into one cell</option>
+            <option value="indexed">Spread (.0, .1…)</option>
+            <option value="json">JSON string</option>
+          </select>
+        </div>
+        <div class="field"><label class="lbl" for="depthInput">Max depth</label><input id="depthInput" type="number" min="1" max="20" value="10" /></div>
+      </div>
+      <div class="checks">
+        <label class="check"><input type="checkbox" id="explodeCheck" checked /> <span><b>Explode</b> arrays of objects into rows</span></label>
+        <label class="check"><input type="checkbox" id="firstHeaderCheck" checked /> <span>Delimited / XLSX: first row is header</span></label>
+        <label class="check"><input type="checkbox" id="xlsxDatesCheck" checked /> <span>XLSX: convert Excel date cells to YYYY-MM-DD</span></label>
+      </div>
+    </details>
+    <div id="importLog" class="log" aria-live="polite"><p class="hint">Import messages appear here.</p></div>
+  </section>
+
+  <section class="card" id="tblCard">
+    <div class="card-head"><h2>2 · Tables &amp; normalize</h2><span class="pill" id="tblPill">no tables</span></div>
+    <div class="tbl-layout">
+      <div class="tbl-side">
+        <div class="lbl">Tables</div>
+        <div id="tableList" class="table-list"><p class="hint">Load data to begin.</p></div>
+        <div class="row gap wrap-row">
+          <input id="renameInput" placeholder="rename active table…" />
+          <button id="renameBtn" class="btn ghost sm" type="button">Rename</button>
+          <button id="dupBtn" class="btn ghost sm" type="button">Duplicate</button>
+          <button id="delBtn" class="btn ghost sm" type="button">Delete</button>
+        </div>
+      </div>
+      <div class="tbl-main">
+        <div class="lbl">Schema &amp; column ops <span class="hint-inline">(rename · cast type · hide)</span></div>
+        <div id="schemaBox" class="schema-box"><p class="hint">—</p></div>
+        <div class="row gap wrap-row">
+          <button id="trimBtn" class="btn ghost sm" type="button">Trim strings</button>
+          <button id="dropRowsBtn" class="btn ghost sm" type="button">Drop empty rows</button>
+          <button id="dropColsBtn" class="btn ghost sm" type="button">Drop empty cols</button>
+          <button id="dedupeBtn" class="btn ghost sm" type="button">Dedupe rows</button>
+        </div>
+        <div class="row gap between">
+          <span class="hint" id="previewInfo">No preview.</span>
+          <span class="row gap">
+            <button id="prevPage" class="btn ghost sm" type="button">‹ Prev</button>
+            <span class="hint" id="pageInfo">page 1</span>
+            <button id="nextPage" class="btn ghost sm" type="button">Next ›</button>
+          </span>
+        </div>
+        <div class="table-scroll"><table id="prevTable"><thead></thead><tbody></tbody></table></div>
+        <div class="row gap wrap-row">
+          <button id="expCsvBtn" class="btn primary sm" type="button">⬇ CSV</button>
+          <button id="expTsvBtn" class="btn ghost sm" type="button">⬇ TSV</button>
+          <button id="expJsonBtn" class="btn ghost sm" type="button">⬇ JSON</button>
+          <button id="expXlsxBtn" class="btn primary sm" type="button">⬇ XLSX</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="joinCard">
+    <div class="card-head"><h2>3 · Join</h2><span class="pill">hash join · in-browser</span></div>
+    <div class="row gap wrap-row">
+      <div class="field"><label class="lbl" for="joinLeft">Left table</label><select id="joinLeft"></select></div>
+      <div class="field"><label class="lbl" for="joinLeftKey">Left key</label><select id="joinLeftKey"></select></div>
+      <div class="field"><label class="lbl" for="joinType">Type</label>
+        <select id="joinType">
+          <option value="inner" selected>Inner</option>
+          <option value="left">Left outer</option>
+          <option value="right">Right outer</option>
+          <option value="full">Full outer</option>
+        </select>
+      </div>
+      <div class="field"><label class="lbl" for="joinRight">Right table</label><select id="joinRight"></select></div>
+      <div class="field"><label class="lbl" for="joinRightKey">Right key</label><select id="joinRightKey"></select></div>
+      <div class="field"><label class="lbl" for="joinOutName">Output name</label><input id="joinOutName" value="joined" /></div>
+    </div>
+    <div class="row gap"><button id="joinRunBtn" class="btn primary" type="button">Run join → new table</button><span class="hint" id="joinInfo"></span></div>
+  </section>
+
+  <section class="card" id="sqlCard">
+    <div class="card-head"><h2>4 · SQL</h2><span class="pill">mini engine · SELECT · JOIN · WHERE · GROUP BY · ORDER BY · LIMIT</span></div>
+    <div class="sql-layout">
+      <div class="sql-side">
+        <div class="lbl">Schema</div>
+        <div id="sqlSchema" class="schema-list"><p class="hint">No tables.</p></div>
+        <div class="lbl">Examples</div>
+        <div class="sample-grid" id="sqlSamples">
+          <button class="btn ghost sm" data-q="select" type="button">SELECT + WHERE</button>
+          <button class="btn ghost sm" data-q="agg" type="button">GROUP BY + AGG</button>
+          <button class="btn ghost sm" data-q="join" type="button">JOIN</button>
+          <button class="btn ghost sm" data-q="like" type="button">LIKE + ORDER + LIMIT</button>
+        </div>
+      </div>
+      <div class="sql-main">
+        <label class="lbl" for="sqlInput">Query <span class="hint-inline">(table names are case-insensitive; “ quotes for weird names)</span></label>
+        <textarea id="sqlInput" spellcheck="false" placeholder="SELECT * FROM employees LIMIT 20"></textarea>
+        <div class="row gap wrap-row">
+          <button id="sqlRunBtn" class="btn primary" type="button">▶ Run query</button>
+          <input id="sqlSaveName" placeholder="save result as…" />
+          <button id="sqlSaveBtn" class="btn ghost" type="button">Save as table</button>
+          <button id="sqlExpCsvBtn" class="btn ghost sm" type="button">⬇ CSV</button>
+          <button id="sqlExpXlsxBtn" class="btn ghost sm" type="button">⬇ XLSX</button>
+        </div>
+        <div id="sqlMsg" class="hint" style="margin-top:8px">Result of the last run appears below and becomes chartable as “$query”.</div>
+        <div class="table-scroll"><table id="sqlTable"><thead></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="vizCard">
+    <div class="card-head"><h2>5 · Visualize</h2><span class="pill">hand-rolled SVG · no libs</span></div>
+    <div class="row gap wrap-row">
+      <div class="field"><label class="lbl" for="chartSource">Source</label><select id="chartSource"></select></div>
+      <div class="field"><label class="lbl" for="chartType">Chart</label>
+        <select id="chartType">
+          <option value="bar" selected>Bar (grouped + aggregated)</option>
+          <option value="line">Line (x ordered)</option>
+          <option value="scatter">Scatter (x vs y)</option>
+          <option value="pie">Pie (share)</option>
+        </select>
+      </div>
+      <div class="field"><label class="lbl" for="chartX">X column</label><select id="chartX"></select></div>
+      <div class="field"><label class="lbl" for="chartY">Y column (number)</label><select id="chartY"></select></div>
+      <div class="field"><label class="lbl" for="chartAgg">Aggregation</label>
+        <select id="chartAgg">
+          <option value="sum" selected>Sum</option>
+          <option value="count">Count</option>
+          <option value="avg">Average</option>
+          <option value="min">Min</option>
+          <option value="max">Max</option>
+        </select>
+      </div>
+      <div class="field"><label class="lbl" for="chartLimit">Top N</label><input id="chartLimit" type="number" min="2" max="60" value="15" /></div>
+    </div>
+    <div class="row gap"><button id="chartRenderBtn" class="btn primary" type="button">Render chart</button>
+      <button id="chartSvgBtn" class="btn ghost" type="button">⬇ SVG</button>
+      <button id="chartPngBtn" class="btn ghost" type="button">⬇ PNG</button>
+      <span class="hint" id="chartInfo"></span></div>
+    <div id="chartBox" class="chart-box"><p class="hint">Configure and render — chart appears here.</p></div>
+  </section>
+
+  <section class="card" id="exportCard">
+    <div class="card-head"><h2>6 · Export everything</h2></div>
+    <div class="row gap wrap-row">
+      <button id="zipBtn" class="btn primary" type="button">⬇ All tables as .zip (CSVs)</button>
+      <span class="hint">Per-table CSV / TSV / JSON / XLSX buttons live under §2 preview. Query-result export lives under §4.</span>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <p><b>Private by design:</b> parsing, joins, SQL, charts and file generation all run locally. No CDN, no network calls. Works from <code>file://</code>.</p>
+  </footer>
+</main>
+
+<script src="./engine.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

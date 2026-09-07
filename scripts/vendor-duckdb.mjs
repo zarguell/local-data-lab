@@ -26,6 +26,7 @@ const duckdbPkg = JSON.parse(await readFile(nm('@duckdb/duckdb-wasm/package.json
 const arrowPkg = JSON.parse(await readFile(nm('apache-arrow/package.json'), 'utf8'));
 const flatPkg = JSON.parse(await readFile(nm('flatbuffers/package.json'), 'utf8'));
 const tslibPkg = JSON.parse(await readFile(nm('tslib/package.json'), 'utf8'));
+const jsonWithBigintPkg = JSON.parse(await readFile(nm('json-with-bigint/package.json'), 'utf8'));
 const duckdbRoot = nm('@duckdb/duckdb-wasm');
 const arrowRoot = nm('apache-arrow');
 
@@ -87,6 +88,7 @@ async function main() {
     apacheArrow: arrowPkg.version,
     flatbuffers: flatPkg.version,
     tslib: tslibPkg.version,
+    jsonWithBigint: jsonWithBigintPkg.version,
     files: {},
   };
   for (const [src, dest] of FILES) {
@@ -108,6 +110,9 @@ async function main() {
   console.log(`vendored flatbuffers ESM (${fb.count} files)`);
   await cp(nm('tslib/tslib.es6.mjs'), path.join(outDir, 'tslib.mjs'));
   console.log('vendored tslib.mjs');
+  // json-with-bigint: transitive dep of apache-arrow v21+ (replaced json-bignum)
+  await cp(nm('json-with-bigint/json-with-bigint.js'), path.join(outDir, 'json-with-bigint.mjs'));
+  console.log('vendored json-with-bigint.mjs');
   // SheetJS: single self-contained classic script (no imports), loaded on demand
   // only when a spreadsheet is imported — keeps first paint light.
   await mkdir(path.join(root, 'vendor', 'xlsx'), { recursive: true });
@@ -120,6 +125,7 @@ async function main() {
     'apache-arrow': './vendor/duckdb/arrow/Arrow.mjs',
     flatbuffers: './vendor/duckdb/flatbuffers/flatbuffers.js',
     tslib: './vendor/duckdb/tslib.mjs',
+    'json-with-bigint': './vendor/duckdb/json-with-bigint.mjs',
   };
   // every bare specifier in the vendored tree must be served by the importmap;
   // anything else is a future Renovate surprise — fail loudly instead.
@@ -128,7 +134,7 @@ async function main() {
   const mjs = await readFile(path.join(outDir, 'duckdb-browser.mjs'), 'utf8');
   if (!mjs.includes('apache-arrow')) throw new Error('duckdb-browser.mjs no longer imports apache-arrow — update importmap wiring');
   await writeFile(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
-  console.log(`manifest: duckdb-wasm@${manifest.duckdbWasm} + arrow@${manifest.apacheArrow} + flatbuffers@${manifest.flatbuffers} + tslib@${manifest.tslib}`);
+  console.log(`manifest: duckdb-wasm@${manifest.duckdbWasm} + arrow@${manifest.apacheArrow} + flatbuffers@${manifest.flatbuffers} + tslib@${manifest.tslib} + json-with-bigint@${manifest.jsonWithBigint}`);
 }
 
 main().catch((e) => { console.error('vendor failed:', e.message); process.exit(1); });

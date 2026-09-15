@@ -113,13 +113,14 @@ async function main() {
   // json-with-bigint: transitive dep of apache-arrow v21+ (replaced json-bignum)
   await cp(nm('json-with-bigint/json-with-bigint.js'), path.join(outDir, 'json-with-bigint.mjs'));
   console.log('vendored json-with-bigint.mjs');
-  // SheetJS: single self-contained classic script (no imports), loaded on demand
-  // only when a spreadsheet is imported — keeps first paint light.
+  // SheetJS (@e965/xlsx community fork): single self-contained classic script
+  // (no imports), loaded on demand only when a spreadsheet is imported — keeps
+  // first paint light.
   await mkdir(path.join(root, 'vendor', 'xlsx'), { recursive: true });
-  await cp(nm('xlsx/dist/xlsx.full.min.js'), path.join(root, 'vendor', 'xlsx', 'xlsx.full.min.js'));
+  await cp(nm('@e965/xlsx/dist/xlsx.full.min.js'), path.join(root, 'vendor', 'xlsx', 'xlsx.full.min.js'));
   const xs = await stat(path.join(root, 'vendor', 'xlsx', 'xlsx.full.min.js'));
   manifest.files['../xlsx/xlsx.full.min.js'] = xs.size;
-  manifest.sheetjs = JSON.parse(await readFile(nm('xlsx/package.json'), 'utf8')).version;
+  manifest.sheetjs = JSON.parse(await readFile(nm('@e965/xlsx/package.json'), 'utf8')).version;
   console.log(`vendored xlsx.full.min.js (${(xs.size / 1048576).toFixed(1)} MiB)`);
   manifest.importmap = {
     'apache-arrow': './vendor/duckdb/arrow/Arrow.mjs',
